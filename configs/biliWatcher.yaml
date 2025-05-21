@@ -2,3 +2,11 @@
   filter: karaoke
   last_url: https://www.bilibili.com/video/BV14gEUz1ETP
   url: https://space.bilibili.com/26165227/lists/4135742?type=series
+- extractor: biliseries.new
+  filter: karaoke
+  last_url: https://www.bilibili.com/video/BV1gMEDzREPW
+  url: https://space.bilibili.com/1351761831/lists/495256?type=series
+- extractor: biliuserupload
+  filter: no-song-cut
+  last_url: https://www.bilibili.com/video/BV1gMEDzREPW  # 可以根据实际情况修改
+  url: https://space.bilibili.com/1351761831/upload/video
