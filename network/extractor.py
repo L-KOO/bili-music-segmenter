@@ -189,6 +189,7 @@ class BilibiliChannelSeriesIE(BiliInfoExtractor):
                 return r, True
         return r, len(r) == 0
 
+
 class BilibiliChannelSeriesIENew(BilibiliChannelSeriesIE):
     # https://space.bilibili.com/3493085134719196/lists/3865824?type=series
     _VALID_URL = r'https?://space.bilibili\.com/(?P<userid>\d+)/lists/(?P<listid>\d+)\?type=series'  # noqa: E501
@@ -238,6 +239,7 @@ class BilibiliChannelCollectionsIE(BiliInfoExtractor):
     _VALID_URL = r'https?://space.bilibili\.com/(?P<userid>\d+)/channel/collectiondetail.+sid=(?P<listid>\d+)'  # noqa: E501
     _GROUPED_BY = ['userid', 'listid']
     _API = r'https://api.bilibili.com/x/polymer/space/seasons_archives_list?mid={}&season_id={}&sort_reverse=false&page_num={page}&page_size=30'  # noqa: E501
+
 
 class BilibiliChannelCollectionsIENew(BilibiliChannelCollectionsIE):
     _VALID_URL = r'https?://space.bilibili\.com/(?P<userid>\d+)/lists/(?P<listid>\d+)\?type=season'  # noqa: E501
@@ -324,6 +326,70 @@ class localGlob(Extractor):
         return [['', x] for x in glob.glob(args[0])]
 
 
+class BilibiliUserUploadIE(BiliInfoExtractor):
+    # https://space.bilibili.com/1351761831/upload/video
+    _VALID_URL = r'https?://space.bilibili\.com/(?P<userid>\d+)/upload/video'
+    _GROUPED_BY = ['userid']
+    _API = r'https://api.bilibili.com/x/space/wbi/arc/search?mid={}&pn={page}&jsonp=jsonp&ps=50'
+
+    def extract_API(
+            self,
+            *args,
+            stop_after: str = None,
+            time_wait=10,
+            headers: dict = 0) -> list:
+        r = []
+        if headers == 0:
+            headers = {**DEFAULT_UI, 'cookie': biliup_to_string()}
+        for i in range(999):
+            apiurl = self._API.format(*args, page=str(i + 1))
+            parsed_url = urlparse(apiurl)
+            logging.debug(['extract API', apiurl])
+            qs = parse_qs(parsed_url.query)
+            qs2 = {key: qs[key][0] for key in qs}
+            newapiurl = f'{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{get_query(qs2)}'
+            k = requests.get(newapiurl, headers=headers)
+            try:
+                parsed, return_signal = self.parse_json(
+                    json_obj=k, stop_after=stop_after)
+            except requests.exceptions.JSONDecodeError:
+                print(k.text)
+                raise
+            r += parsed
+            if return_signal:
+                return r
+            time.sleep(time_wait)
+        return r
+
+    def parse_json(self, json_obj: dict, stop_after: bool = None) -> tuple:
+        r = []
+        try:
+            if hasattr(json_obj, 'json'):
+                jsonified_json = json_obj.json()
+            else:
+                jsonified_json = json_obj
+            for i in jsonified_json['data']['list']['vlist']:
+                if r'https://www.bilibili.com/video/{}'.format(
+                        i['bvid']) == stop_after:
+                    return r, True
+                r.append(
+                    [
+                        i['title'],
+                        r'https://www.bilibili.com/video/{}'.format(i['bvid'])])
+                if stop_after is True:
+                    return r, True
+            return r, len(r) == 0
+        except requests.exceptions.JSONDecodeError:
+            json_txt = json_obj.text
+            if '"code":-509,' in json_txt:
+                logging.warn('triggered code -509')
+                return self.parse_json(
+                    json.loads(json_txt[json_txt.index('}') + 1:]),
+                    stop_after
+                )
+            raise
+
+
 def url_filter(r: list, or_keywords: list = [], no_keywords: list = []) -> list:
     '''
     keep item in r if item has one of the or keywords
@@ -348,6 +414,7 @@ EXTRACTORS = {
     'biliepisode': BilibiliEpisodesIE,
     'bilichannel': BilibiliChannelIE,
     'glob': localGlob,
+    'biliuserupload': BilibiliUserUploadIE,
 }
 
 FILTERS = {
@@ -359,6 +426,7 @@ FILTERS = {
     'nogame': lambda r: url_filter(r, no_keywords=['游戏',]),
     'song_from_stream': lambda r: url_filter(r, or_keywords=['歌切',]),
     'hachi': lambda r: url_filter(r, or_keywords=['歌回合集',]),
+    'no-song-cut': lambda r: url_filter(r, no_keywords=['[歌切]']),
 }
 
 
