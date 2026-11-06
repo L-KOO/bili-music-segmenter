@@ -1,5 +1,6 @@
 import time
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
 from network.watcher import watch
@@ -19,11 +20,13 @@ if __name__ == '__main__':
     parser.add_argument(
         '--log_level',
         type=int,
-        default=logging.DEBUG,
+        default=logging.INFO,
         help='in seconds. 0 means no repeat.')
     args = parser.parse_args()
     logging.basicConfig(level=args.log_level, handlers=[
-        logging.FileHandler('./inaseg.log'),
+        RotatingFileHandler(
+            './inaseg.log', maxBytes=32 * 1024 * 1024,
+            backupCount=3, encoding='utf-8'),
         logging.StreamHandler()
     ])
     while True:

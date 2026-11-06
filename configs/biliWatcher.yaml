@@ -1,12 +1,33 @@
+- extractor: glob
+  filter: null
+  last_url: "/recording/2026-11-05 19-10-05 \u8FD8\u5728\u5531\u5462_merged.mp4"
+  name: me!me!me!
+  url: /recording/*
 - extractor: biliseries.new
-  filter: karaoke
-  last_url: https://www.bilibili.com/video/BV14gEUz1ETP
-  url: https://space.bilibili.com/26165227/lists/4135742?type=series
-- extractor: biliseries.new
-  filter: karaoke
-  last_url: https://www.bilibili.com/video/BV1gMEDzREPW
+  filter: hachi
+  last_url: https://www.bilibili.com/video/BV1Jv4i6uEjd
   url: https://space.bilibili.com/1351761831/lists/495256?type=series
 - extractor: biliuserupload
+  filter: null
+  last_url: https://www.bilibili.com/video/BV1eGPozLERA
+  url: https://space.bilibili.com/3493294331923008/upload/video
+- extractor: biliuserupload
+  filter: karaoke
+  last_url: https://www.bilibili.com/video/BV1qo4v6NEkF
+  url: https://space.bilibili.com/289437658/upload/video
+- extractor: biliuserupload
   filter: no-song-cut
-  last_url: https://www.bilibili.com/video/BV1gMEDzREPW  # 可以根据实际情况修改
-  url: https://space.bilibili.com/1351761831/upload/video
+  last_url: https://www.bilibili.com/video/BV1s3486hEp8
+  url: https://space.bilibili.com/1535934003/upload/video
+- extractor: acfunuser
+  filter: karaoke
+  last_url: https://www.acfun.cn/v/ac47653921
+  url: https://www.acfun.cn/u/179922
+- extractor: biliseries.new
+  filter: null
+  last_url: https://www.bilibili.com/video/BV1BXuW64EyZ
+  url: https://space.bilibili.com/2000609327/lists/2662205?type=series
+- extractor: biliseries.new
+  filter: hachi
+  last_url: https://www.bilibili.com/video/BV1Gasf6XE4A
+  url: https://space.bilibili.com/354389308/lists/4195251?type=series

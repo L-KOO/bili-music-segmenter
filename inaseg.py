@@ -4,11 +4,40 @@ import glob
 import logging
 import tempfile
 import asyncio
+from logging.handlers import RotatingFileHandler
+
+# TF 在 2C4T 的机器上默认会开过多线程互相抢，显式钉住。
+# 必须在 import tensorflow 之前设置 —— 下面 segment.segment 会拉起 tf。
+os.environ.setdefault('OMP_NUM_THREADS', '4')
+os.environ.setdefault('TF_NUM_INTRAOP_THREADS', '4')
+os.environ.setdefault('TF_NUM_INTEROP_THREADS', '1')
 
 from segment.shazam import shazaming
 from network.download import ytbdl
 from segment.segment import extract_mah_stuff, extract_music, segment_wrapper,\
     SEGMENT_THRES, TimestampMismatch
+
+
+class DropFFmpegSpam(logging.Filter):
+    """丢掉损坏音频导致的刷屏日志。
+
+    坏掉的录播会让 ffmpeg 每帧刷一条告警，实测单场能刷出上千万条，
+    把 inaseg_inst.log 写到 9.5GB。这些行没有任何诊断价值，直接拦掉。
+    """
+
+    PATTERNS = (
+        'invalid mpeg audio header',
+        'skipping junk at',
+        'channel element',
+        'Error while decoding stream',
+    )
+
+    def filter(self, record):
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        return not any(p in msg for p in self.PATTERNS)
 
 
 if __name__ == '__main__':
@@ -48,13 +77,19 @@ if __name__ == '__main__':
         help='for computers with limited RAM (eg a 5 hrs stream \
             requires ~6GB VRAM), set this to process streams in \
                 this speficied segments to avoid ram overflow. in seconds.')
+    _log_handlers = [
+        RotatingFileHandler(
+            './inaseg_inst.log', maxBytes=64 * 1024 * 1024,
+            backupCount=3, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+    _noise = DropFFmpegSpam()
+    for _h in _log_handlers:
+        _h.addFilter(_noise)
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format='%(asctime)s %(levelname)-8s %(message)s',
-        handlers=[
-            logging.FileHandler('./inaseg_inst.log'),
-            logging.StreamHandler()
-        ])
+        handlers=_log_handlers)
     args = parser.parse_args()
     # media = ytbdl('')
     if args.media is not None:

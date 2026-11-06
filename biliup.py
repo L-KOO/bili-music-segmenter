@@ -1,5 +1,6 @@
 import logging
 import glob
+import json
 import os
 import subprocess
 import multiprocessing
@@ -10,6 +11,48 @@ from network.download import ytbdl
 from utils.filename import strip_medianame_out, put_medianame_backin
 from utils.process import cell_stdout
 from network.biliupload import bilibili_upload, BILIUP_ROUTE
+
+
+# 失败记账：损坏的录播会让分割必然失败，而下一轮 12 小时循环又会把同一个
+# 文件捡起来、白跑十几分钟再失败。这里记一个失败次数，达到上限就跳过。
+# 想重试某个文件，把 _failed_media.json 里对应那一条删掉即可。
+FAIL_LEDGER = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '_failed_media.json')
+FAIL_LIMIT = 2
+
+
+def _load_ledger():
+    try:
+        with open(FAIL_LEDGER, encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_ledger(data):
+    try:
+        with open(FAIL_LEDGER, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=1, sort_keys=True)
+    except Exception as e:
+        logging.error(['写入失败记账文件出错', repr(e)])
+
+
+def failure_count(media):
+    return int(_load_ledger().get(media, 0))
+
+
+def mark_failure(media):
+    data = _load_ledger()
+    data[media] = int(data.get(media, 0)) + 1
+    _save_ledger(data)
+    return data[media]
+
+
+def clear_failure(media):
+    data = _load_ledger()
+    if media in data:
+        del data[media]
+        _save_ledger(data)
 
 
 class InaBiliup():
@@ -45,6 +88,12 @@ class InaBiliup():
             outdir = self.outdir
             if media == '':
                 return
+            _fails = failure_count(media)
+            if _fails >= FAIL_LIMIT:
+                logging.warning([
+                    media, '已连续失败', _fails, '次，跳过不再重试；',
+                    '删掉', FAIL_LEDGER, '里对应那条即可重试'])
+                return
             logging.info(f'inaseging {media} at ' +
                          datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             os.chdir(outdir)
@@ -75,6 +124,7 @@ class InaBiliup():
                 stripped_media_names, os.path.basename(media),
                 source=None, episode_limit=self.episode_limit, useCelery=self.use_celery)
             logging.info(['finished stripping and uploading', media])
+            clear_failure(media)
             if self.cleanup:
                 if os.path.isfile(media):
                     os.remove(media)
@@ -91,10 +141,15 @@ class InaBiliup():
             if self.ignore_errors:
                 for i in glob.glob('*.mp4') + glob.glob('*.aria2') + \
                         glob.glob('*.part'):
-                    os.remove(i)
+                    os.path.isfile(i) and os.remove(i)
                 # if os.path.isfile(media): os.remove(media)
-                logging.error(f'{media} failed. file is removed in\
-                     automatic error ignore handler')
+                _n = mark_failure(media)
+                logging.error(f'{media} failed ({_n}/{FAIL_LIMIT}). file is \
+removed in automatic error ignore handler')
+                if _n >= FAIL_LIMIT:
+                    logging.error([
+                        media, '连续失败已达上限，之后的循环会跳过它；',
+                        '确认要重试就删掉', FAIL_LEDGER, '里对应那条'])
             else:
                 raise
 

@@ -14,6 +14,13 @@ from network.wbi import get_query
 from network.constants import DEFAULT_UI
 from network.cookieformatter import biliup_to_string
 
+# 新增：存储已存在且包含关键词和特定日期的视频信息
+existing_keyword_dates = set()
+# 关键词
+KEYWORD = '[歌切] [koeiil]'
+# 日期正则表达式
+DATE_REGEX = r'(\d{4}-\d{2}-\d{2})'
+
 '''
 from inaConstant import EXTRACTORS
 EXTRACTORS['glob']().extract(r'D:\tmp\ytd\convert2music\*.mp3')
@@ -180,11 +187,22 @@ class BilibiliChannelSeriesIE(BiliInfoExtractor):
     def parse_json(self, json_obj: dict, stop_after: bool = None) -> tuple:
         r = []
         for i in json_obj.json()['data']['archives']:
+            title = i['title']
+            # 检查标题是否包含关键词
+            if KEYWORD in title:
+                # 提取日期信息
+                date_match = re.search(DATE_REGEX, title)
+                if date_match:
+                    date = date_match.group(1)
+                    # 检查是否已经处理过该日期的视频
+                    if (KEYWORD, date) in existing_keyword_dates:
+                        continue
+                    existing_keyword_dates.add((KEYWORD, date))
             if r'https://www.bilibili.com/video/{}'.format(
                     i['bvid']) == stop_after:
                 return r, True
             r.append(
-                [i['title'], r'https://www.bilibili.com/video/{}'.format(i['bvid'])])
+                [title, r'https://www.bilibili.com/video/{}'.format(i['bvid'])])
             if stop_after is True:
                 return r, True
         return r, len(r) == 0
@@ -224,12 +242,23 @@ class BilibiliEpisodesIE(BiliInfoExtractor):
     def parse_json(self, json_obj: dict, bvid: str, stop_after: bool = None) -> tuple:
         r = []
         for i in reversed(json_obj.json()['data']):
+            title = i['part']
+            # 检查标题是否包含关键词
+            if KEYWORD in title:
+                # 提取日期信息
+                date_match = re.search(DATE_REGEX, title)
+                if date_match:
+                    date = date_match.group(1)
+                    # 检查是否已经处理过该日期的视频
+                    if (KEYWORD, date) in existing_keyword_dates:
+                        continue
+                    existing_keyword_dates.add((KEYWORD, date))
             if r'https://www.bilibili.com/video/{}?p={}'.format(
                     bvid,
                     i['page']) == stop_after:
                 return r, True
             r.append(
-                [i['part'], r'https://www.bilibili.com/video/{}?p={}'.format(bvid, i['page'])])  # noqa: E501
+                [title, r'https://www.bilibili.com/video/{}?p={}'.format(bvid, i['page'])])  # noqa: E501
             if stop_after is True:
                 return r, True
         return r, len(r) == 0
@@ -239,6 +268,29 @@ class BilibiliChannelCollectionsIE(BiliInfoExtractor):
     _VALID_URL = r'https?://space.bilibili\.com/(?P<userid>\d+)/channel/collectiondetail.+sid=(?P<listid>\d+)'  # noqa: E501
     _GROUPED_BY = ['userid', 'listid']
     _API = r'https://api.bilibili.com/x/polymer/space/seasons_archives_list?mid={}&season_id={}&sort_reverse=false&page_num={page}&page_size=30'  # noqa: E501
+
+    def parse_json(self, json_obj: dict, stop_after: bool = None) -> tuple:
+        r = []
+        for i in json_obj.json()['data']['archives']:
+            title = i['title']
+            # 检查标题是否包含关键词
+            if KEYWORD in title:
+                # 提取日期信息
+                date_match = re.search(DATE_REGEX, title)
+                if date_match:
+                    date = date_match.group(1)
+                    # 检查是否已经处理过该日期的视频
+                    if (KEYWORD, date) in existing_keyword_dates:
+                        continue
+                    existing_keyword_dates.add((KEYWORD, date))
+            if r'https://www.bilibili.com/video/{}'.format(
+                    i['bvid']) == stop_after:
+                return r, True
+            r.append(
+                [title, r'https://www.bilibili.com/video/{}'.format(i['bvid'])])
+            if stop_after is True:
+                return r, True
+        return r, len(r) == 0
 
 
 class BilibiliChannelCollectionsIENew(BilibiliChannelCollectionsIE):
@@ -260,7 +312,7 @@ class BilibiliChannelIE(BiliInfoExtractor):
             headers: dict = 0) -> list:
         r = []
         if headers == 0:
-            headers = {**DEFAULT_UI, 'cookie': biliup_to_string()}
+            headers = {**DEFAULT_UI, 'cookie': biliup_to_string(), 'referer': 'https://space.bilibili.com' }
         for i in range(999):
             apiurl = self._API.format(*args, page=str(i + 1))
             parsed_url = urlparse(apiurl)
@@ -286,30 +338,29 @@ class BilibiliChannelIE(BiliInfoExtractor):
     def parse_json(self, json_obj: dict, stop_after: bool = None) -> tuple:
         r = []
         try:
-            if hasattr(json_obj, 'json'):
-                jsonified_json = json_obj.json()
-            else:
-                jsonified_json = json_obj
-            for i in jsonified_json['data']['list']['vlist']:
+            for i in json_obj.json()['data']['list']['vlist']:
+                title = i['title']
+                # 检查标题是否包含关键词
+                if KEYWORD in title:
+                    # 提取日期信息
+                    date_match = re.search(DATE_REGEX, title)
+                    if date_match:
+                        date = date_match.group(1)
+                        # 检查是否已经处理过该日期的视频
+                        if (KEYWORD, date) in existing_keyword_dates:
+                            continue
+                        existing_keyword_dates.add((KEYWORD, date))
                 if r'https://www.bilibili.com/video/{}'.format(
                         i['bvid']) == stop_after:
                     return r, True
                 r.append(
-                    [
-                        i['title'],
-                        r'https://www.bilibili.com/video/{}'.format(i['bvid'])])
+                    [title, r'https://www.bilibili.com/video/{}'.format(i['bvid'])])
                 if stop_after is True:
                     return r, True
             return r, len(r) == 0
-        except requests.exceptions.JSONDecodeError:
-            json_txt = json_obj.text
-            if '"code":-509,' in json_txt:
-                logging.warn('triggered code -509')
-                return self.parse_json(
-                    json.loads(json_txt[json_txt.index('}') + 1:]),
-                    stop_after
-                )
-            raise
+        except KeyError:
+            logging.error(['Failed to parse JSON:', json_obj.text])
+            return r, True
 
 
 class localGlob(Extractor):
@@ -369,13 +420,22 @@ class BilibiliUserUploadIE(BiliInfoExtractor):
             else:
                 jsonified_json = json_obj
             for i in jsonified_json['data']['list']['vlist']:
+                title = i['title']
+                # 检查标题是否包含关键词
+                if KEYWORD in title:
+                    # 提取日期信息
+                    date_match = re.search(DATE_REGEX, title)
+                    if date_match:
+                        date = date_match.group(1)
+                        # 检查是否已经处理过该日期的视频
+                        if (KEYWORD, date) in existing_keyword_dates:
+                            continue
+                        existing_keyword_dates.add((KEYWORD, date))
                 if r'https://www.bilibili.com/video/{}'.format(
                         i['bvid']) == stop_after:
                     return r, True
                 r.append(
-                    [
-                        i['title'],
-                        r'https://www.bilibili.com/video/{}'.format(i['bvid'])])
+                    [title, r'https://www.bilibili.com/video/{}'.format(i['bvid'])])
                 if stop_after is True:
                     return r, True
             return r, len(r) == 0
@@ -419,13 +479,13 @@ EXTRACTORS = {
 
 FILTERS = {
     None: lambda r: [x[1] for x in r],
-    'karaoke': lambda r: url_filter(r, or_keywords=['歌', '唱', '黑听']),
-    'moonlight': lambda r: url_filter(r, or_keywords=['歌', '唱', '黑听', '猫猫头播放器']),
-    "steria": lambda r: url_filter(r, or_keywords=["歌", "唱", "黑听", "早安"]),
+    'karaoke': lambda r: url_filter(r, or_keywords=['歌', '唱', '黑听', '歌回', '歌台']),
+    'moonlight': lambda r: url_filter(r, or_keywords=['歌', '唱', '黑听', '汐汉三']),
+    "steria": lambda r: url_filter(r, or_keywords=["歌杂", "歌回", "黑听", "3D歌回", "唱歌", '唱歌+云顶之弈','歌']),
     'nopart': lambda r: url_filter(r, no_keywords=['part',]),
     'nogame': lambda r: url_filter(r, no_keywords=['游戏',]),
     'song_from_stream': lambda r: url_filter(r, or_keywords=['歌切',]),
-    'hachi': lambda r: url_filter(r, or_keywords=['歌回合集',]),
+    'hachi': lambda r: url_filter(r, or_keywords=['月','歌', '唱', '黑听', '歌回', '歌台', '大哥L', '歌势']),
     'no-song-cut': lambda r: url_filter(r, no_keywords=['[歌切]']),
 }
 
