@@ -1,5 +1,38 @@
 # 在云服务器上用 docker 部署
 
+## 本分支的改动（2026-11）
+
+针对 **Intel i3-6100 / 2C4T / 16GB / 无独显** 这台机器做的优化。
+实测单场 2 小时 56 分素材从 **70 分钟降到 10 分 44 秒**。完整说明见 [CHANGELOG.md](CHANGELOG.md)。
+
+| 改动 | 效果 |
+|---|---|
+| 分割 batch 16 → 64 | 17.1x → 23.8x 实时（128 反而变慢） |
+| 切片改固定 3 路并发 | 避免几十个 ffmpeg 同时抢机械盘 |
+| 40 分钟等待从「分割前」挪到「上传之间」 | 单场少等 38 分钟，分割与上传并行 |
+| 识歌改多点 12 秒取样 | 命中率 20% → 60%，原有命中不丢 |
+| 分块加 30 秒重叠 | 块边界上的歌不再被切掉半首 |
+| 日志降噪 + 滚动 | 坏录播曾把 inaseg_inst.log 刷到 9.5GB |
+| 失败记账 | 坏文件连续失败 2 次后跳过，不再每轮重跑 |
+| `scripts/upload_watch.sh` | 5 小时无上传进展推 PushPlus 提醒过验证码 |
+| `scripts/upload_recover.sh` | 任务重试耗尽后自动重投，改名防重复上传 |
+
+### 新增的两个脚本
+
+```bash
+# 1) 卡死告警：需要先填 PushPlus token
+cp scripts/.pushplus.env.example scripts/.pushplus.env
+vi scripts/.pushplus.env        # 填 PUSHPLUS_TOKEN=你的token
+
+# 2) 挂到 crontab（路径按你实际的工程目录改，容器里是 /inaseg）
+*/10 * * * * /vol2/1000/ipynb/scripts/upload_watch.sh   >> /vol2/1000/ipynb/scripts/upload_watch.log 2>&1
+*/10 * * * * /vol2/1000/ipynb/scripts/upload_recover.sh >> /vol2/1000/ipynb/scripts/upload_recover.log 2>&1
+```
+
+`.pushplus.env` 已在 `.gitignore` 里，不会提交。
+
+---
+
 参考配置：1 核 1GB 内存 ubuntu22 云机器
 
 1. 使用一键脚本安装 docker（https://docs.docker.com/engine/install/ubuntu/）

@@ -1,6 +1,6 @@
 #!/bin/bash
 # 监控 /vol2/1000/ipynb/inaupload：
-# 待上传的切片如果连续 3 小时没有任何一个被成功上传（目录没被清掉），
+# 待上传的切片如果连续 5 小时没有任何一个被成功上传（目录没被清掉），
 # 说明 biliup 被 B 站的人机验证拦住了，推一条 PushPlus 提醒去手动传一个文件。
 #
 # 判断依据：
@@ -20,7 +20,7 @@ ENV_FILE="$(cd "$(dirname "$0")" && pwd)/.pushplus.env"
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 TOKEN="${PUSHPLUS_TOKEN:-}"
 
-STALL=$((3 * 3600))        # 多久没进展算卡住
+STALL=$((5 * 3600))        # 多久没进展算卡住（大文件上传本身就要 2~3 小时）
 COOLDOWN=$((6 * 3600))     # 同一轮卡住最多多久提醒一次
 now=$(date +%s)
 
