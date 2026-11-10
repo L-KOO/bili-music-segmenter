@@ -31,3 +31,4 @@ _prof/
 core
 *.swp
 segment/bak/
+*.bak

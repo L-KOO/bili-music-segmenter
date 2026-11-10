@@ -45,7 +45,7 @@ if [ -f "$STATE" ]; then
 fi
 
 if [ "$count" -eq 0 ]; then
-    echo "$now 0 - $now $now" > "$STATE"
+    echo "0 - $now $now" > "$STATE"
     exit 0
 fi
 
@@ -64,7 +64,7 @@ fi
 
 waited=$((now - shrink))
 ttl=$((now - oldest_ts))
-prev_alert=${prev_alert:-0}
+prev_alert=${prev_alert%% *}; prev_alert=${prev_alert:-0}
 
 if [ "$waited" -ge "$STALL" ] && [ $((now - prev_alert)) -ge "$COOLDOWN" ]; then
     if [ -z "$TOKEN" ]; then
