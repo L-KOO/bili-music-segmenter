@@ -213,3 +213,27 @@ docker restart ipnby-inaseg-1 ipnby-inacelery-1
   同时把状态文件里的计时锚点改回最老目录的真实创建时间。
 - `upload_recover.sh`：重投成功后写状态时把 `count` 错写成了 epoch，
   导致下一轮误报「检测到成功上传：目录 1794319801 -> 3」。改为写 `$count`。
+
+### 14. 新增 `scripts/upload_resume.sh`：验证码解除后立即续传
+
+问题：B 站风控会拦死 biliup，而 celery 的 `retry_upload` 在两次尝试之间 sleep
+5~30 分钟，这个 sleep 还占着 `-c 1` 的唯一 worker 槽位。你在浏览器里过了验证码
+之后，队列仍要等它睡醒才动。
+
+更糟的情况：如果你手动上传完、把本地目录删了，celery 里那个任务会一直拿着
+不存在的文件重试 15 次，把唯一的 worker 占死，后面的任务全被堵住。
+
+做法：`upload_resume.py` 绕过 celery，直接调 `biliup upload`。
+
+- 没有可靠的旁路信号能判断验证码是否已过（你是在浏览器操作的），
+  所以检测手段就是**真的试一次**：成功 = 风控解除，失败 = 还在拦
+- 失败按 2/4/8/15/30 分钟指数退避，避免轰炸
+- 上传前先给目录改名（`.resume<epoch>`），celery 里那个旧任务拿旧路径只会
+  失败退出，物理上不可能重复上传
+- 要求当前没有 `biliup` 进程在跑才开始
+- 一次成功后隔 `RESUME_SUCCESS_GAP`（默认 900 秒）再传下一个，
+  不给风控连续抓的机会；单轮最多 `RESUME_MAX_PER_RUN`（默认 3）个
+- 每 2 分钟由 cron 触发，与 watch/recover 共用 `/tmp/upload_pipeline.lock`
+
+实测：风控解除后 2 分钟内自动接上，上传速率 7.2 MB/s
+（被拦时只有 0.68 MB/s，是限速不是带宽）。

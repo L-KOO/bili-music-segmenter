@@ -19,7 +19,7 @@ STATE=/vol2/1000/ipynb/.upload_recover.state
 ORPHANS=/vol2/1000/ipynb/.upload_recover.orphans
 SINCE=/vol2/1000/ipynb/.upload_recover.since
 LOG=/vol2/1000/ipynb/scripts/upload_recover.log
-LOCK=/tmp/upload_recover.lock
+LOCK=/tmp/upload_pipeline.lock
 PY=/inaseg/scripts/upload_requeue.py     # 容器内路径（/inaseg 就是 /vol2/1000/ipynb）
 
 MIN_AGE=3600        # 目录至少存在 60 分钟才考虑
