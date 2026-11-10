@@ -42,6 +42,13 @@ for name in sorted(os.listdir(UP)):
     if now - int(os.path.getmtime(d)) < min_age:
         continue
     try:
+        names = os.listdir(d)
+    except OSError:
+        continue
+    if not any(n.lower().endswith('.mp4') for n in names):
+        print('SKIP %s: 没有 mp4 了' % name, file=sys.stderr)
+        continue
+    try:
         with open(os.path.join(d, 'cmd.txt'), encoding='utf-8') as f:
             cmd = json.load(f)
     except Exception as e:

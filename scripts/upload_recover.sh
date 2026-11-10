@@ -79,7 +79,8 @@ fi
 tmp=$(mktemp)
 while IFS= read -r n; do
     [ -n "$n" ] || continue
-    [ -d "$UP/$n" ] && [ -f "$UP/$n/cmd.txt" ] && echo "$n" >> "$tmp"
+    [ -d "$UP/$n" ] && [ -f "$UP/$n/cmd.txt" ] && \
+        ls "$UP/$n"/*.mp4 >/dev/null 2>&1 && echo "$n" >> "$tmp"
 done < "$ORPHANS"
 mv "$tmp" "$ORPHANS"
 orphan_n=$(grep -c . "$ORPHANS" 2>/dev/null || true)

@@ -237,3 +237,26 @@ docker restart ipnby-inaseg-1 ipnby-inacelery-1
 
 实测：风控解除后 2 分钟内自动接上，上传速率 7.2 MB/s
 （被拦时只有 0.68 MB/s，是限速不是带宽）。
+
+### 15. 源文件缺失时快速跳过 + 目录数减少解除退避
+
+背景：手动上传后把本地目录删掉，排队中的 celery 任务会拿着不存在的路径重试
+15 次（每次间隔 5~30 分钟），把 `-c 1` 的唯一 worker 占死，后面所有任务被堵住。
+
+改动：
+
+- `inacelery/celery.py`
+  - 新增 `SourceGone(BaseException)`：继承 `BaseException` 以穿透
+    `utils.util.retry` 的 `except Exception`，不消耗重试次数、不 sleep
+  - `retry_upload()` 每次调用前 `ensure_media(cmd)`，任一文件缺失即抛
+  - `add()` 捕获后打日志、清理空目录、**立即 return**（不 sleep `UPLOAD_INTERVAL`）
+- `scripts/upload_resume.py`
+  - `take()` 改名前后都校验目录/文件，目录已删则返回 `None` 跳过
+  - 上传前再校验 cmd 里的文件，缺失就丢掉这一单，不调 biliup
+  - 状态文件增加第 3 个字段 `last_count`：目录数变少即判定有进展、**解除退避**
+    （手动删目录只会发生在上传失败之后，所以和「上传成功」统一处理是安全的）
+  - 修复：队列清空时状态没落盘（`if next_try or fails` 在刚重置后恒为假，
+    会把陈旧 `next_try` 留在文件里）
+- `scripts/upload_requeue.py` / `upload_recover.sh`：孤儿判定加「至少还有 1 个 mp4」
+
+实测：重启后残留的 3 个陈旧任务各在 **3 毫秒**内跳过，不再占用 worker。
