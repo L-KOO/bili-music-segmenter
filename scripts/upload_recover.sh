@@ -116,5 +116,5 @@ err=$(tail -3 /tmp/upload_recover.err 2>/dev/null)
 
 if echo "$out" | grep -q '\["'; then
     : > "$ORPHANS"
-    echo "$now $last_success $now" > "$STATE"
+    echo "$count $last_success $now" > "$STATE"
 fi

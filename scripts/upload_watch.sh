@@ -51,7 +51,10 @@ fi
 
 oldest="${pending[0]}"
 oldest_name=$(basename "$oldest")
-oldest_sig=$(printf '%s' "$oldest_name" | md5sum | cut -d' ' -f1)
+# 恢复脚本会给目录加 .retry<epoch> 后缀；改名重投本身不代表真有进展，
+# 所以算签名前先把后缀去掉，否则计时被重置、告警最长推迟 STALL 小时。
+oldest_base=$(printf '%s' "$oldest_name" | sed 's/\(\.retry[0-9]\+\)\+$//')
+oldest_sig=$(printf '%s' "$oldest_base" | md5sum | cut -d' ' -f1)
 oldest_ts=$(stat -c %Y "$oldest" 2>/dev/null || echo "$now")
 
 # 有没有进展？
