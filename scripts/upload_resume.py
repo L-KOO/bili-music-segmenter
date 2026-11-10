@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
-"""验证码过了之后，立即把积压的待上传目录传上去，不等 celery 的定时重试。
+"""补传通道：只在「武装」状态下工作，把积压的待上传目录传完就自动解除武装。
 
-为什么需要它：
-  B 站风控会拦死 biliup，celery 的 retry_upload 在两次尝试之间 sleep 5~30 分钟，
-  而且这个 sleep 占着 -c 1 的唯一 worker 槽位。就算你在浏览器里手动上传解除了
-  风控，队列也要等它睡醒才动。这个脚本绕过 celery，直接调 biliup 上传。
+为什么不常驻：
+  B 站风控会拦死 biliup。之前这个脚本每 2 分钟无条件试一次，被拦时等于每 30 分钟
+  往 B 站打一次真实上传请求，而且健康时还会抢在 celery 前面传。现在改成事件驱动：
+  平时一条命令都不发，只有收到「武装」信号才动手。
 
-怎么"检测"验证码已过：
-  没有可靠的旁路信号（你是在浏览器里操作的），所以检测手段就是真的试一次：
-  上传成功 = 风控已解除；失败 = 还在拦，指数退避。
+武装信号从哪来：
+  你手动过验证码并删掉本地目录后，inaupload 的目录数会变少；
+  upload_watch.sh 每 10 分钟扫一次，发现目录数变少就 touch 一个标记文件。
+  你的操作习惯是「一定会在手动上传后删目录」，所以这个信号是可靠的。
+
+工作方式：
+  命中武装标记 -> 循环把待传目录一个个传完（同一次运行内，间隔 IN_RUN_GAP 秒）
+  -> 全部清空后删掉标记、退出。中途失败则保留标记，按退避等下一轮继续。
 
 和 celery 并存怎么办：
   上传前先把目录改名。celery 里那个还在 sleep 的旧任务拿着旧路径只会失败退出，
   物理上不可能重复上传。另外要求当前没有 biliup 进程在跑。
 
 用法：
-  python upload_resume.py [--dry-run]
+  python upload_resume.py            常态（cron 调用，未武装则什么都不做）
+  python upload_resume.py --drain    无视武装标记，立刻把当前剩余的传完
+  python upload_resume.py --dry-run  只看会传什么，不动文件
 """
 
 import json
@@ -28,14 +35,18 @@ import time
 
 UP = '/inaseg/inaupload'
 STATE = '/inaseg/.upload_resume.state'
+ARM = '/inaseg/.upload_resume.arm'
+
 DRY = '--dry-run' in sys.argv
+# --drain / --dry-run 都无视武装标记，供人工一次性调用
+FORCE = ('--drain' in sys.argv) or DRY
 
 # 失败退避：第 1/2/3/4/5+ 次失败后分别等多少秒
 BACKOFF = [120, 240, 480, 900, 1800]
-# 一次成功后，隔多久再传下一个（不给 B 站风控再抓一次的机会）
-SUCCESS_GAP = int(os.environ.get('RESUME_SUCCESS_GAP', '900'))
-# 单次运行最多传几个（防止一次把整个队列灌上去）
-MAX_PER_RUN = int(os.environ.get('RESUME_MAX_PER_RUN', '3'))
+# 同一次运行内，两场之间隔多久（不给 B 站风控连续抓的机会）
+IN_RUN_GAP = int(os.environ.get('RESUME_INRUN_GAP', '60'))
+# 单次运行最多传几个，防止一次性把整队列灌上去；到上限就保留武装等下一轮
+MAX_DRAIN = int(os.environ.get('RESUME_MAX_DRAIN', '10'))
 
 
 def log(msg):
@@ -94,6 +105,13 @@ def save_state(next_try, fails, count):
         log('写状态失败: %r' % (e,))
 
 
+def disarm():
+    try:
+        os.remove(ARM)
+    except OSError:
+        pass
+
+
 def base_name(name):
     return re.sub(r'(\.(?:retry|resume)\d+)+$', '', name)
 
@@ -131,41 +149,57 @@ def take(d):
 
 
 def main():
+    if not FORCE and not os.path.exists(ARM):
+        return 0                      # 未武装：静默退出，不发任何上传请求
+
     now = int(time.time())
     next_try, fails, last_count = load_state()
 
     dirs = pending_dirs()
     count = len(dirs)
 
-    # 目录数变少 = 有进展：可能是 celery 传成功了，也可能是用户在收到告警后
-    # 手动上传并清掉了目录。两种都说明「情况变了，该重新试一次」，统一解除退避。
-    if last_count is not None and count < last_count:
-        log('目录数 %d -> %d，判定有进展，解除退避' % (last_count, count))
-        next_try, fails = 0, 0
-
     if count == 0:
-        # 队列空了：一起归零并落盘（不能只在非零时写，重置后恒为假）
         save_state(0, 0, 0)
-        log('没有待上传目录')
+        disarm()
+        log('没有待上传目录，解除武装')
         return 0
 
+    # 武装期间目录数又变少 = 又有进展，立刻解除退避，不必干等
+    if last_count is not None and count < last_count:
+        log('目录数 %d -> %d，解除退避' % (last_count, count))
+        next_try, fails = 0, 0
+
     if now < next_try:
-        log('退避中，还有 %d 秒' % (next_try - now))
+        log('退避中，还有 %d 秒（武装保留）' % (next_try - now))
         save_state(next_try, fails, count)
         return 0
 
     if biliup_running():
-        log('有 biliup 正在上传，跳过')
+        log('有 biliup 正在上传，跳过（武装保留）')
         save_state(next_try, fails, count)
         return 0
 
-    log('待上传 %d 个，开始尝试' % count)
+    log('已武装，待上传 %d 个，开始补传' % count)
     ok = 0
-    for d in dirs[:MAX_PER_RUN]:
+
+    while True:
+        dirs = pending_dirs()
+        if not dirs:
+            save_state(0, 0, 0)
+            disarm()
+            log('剩余已全部传完（本次 %d 个），解除武装' % ok)
+            return 0
+
+        if ok >= MAX_DRAIN:
+            save_state(0, 0, len(dirs))
+            log('已达单轮上限 %d 个，武装保留，等下一轮继续' % MAX_DRAIN)
+            return 0
+
+        d = dirs[0]
         name = os.path.basename(d)
         newd, cmd = take(d)
         if newd is None:
-            continue                     # take() 内部已记日志
+            continue                  # take() 内部已记日志
 
         if DRY:
             log('[DRY] 会上传 %s -> %s' % (name, os.path.basename(newd)))
@@ -175,7 +209,6 @@ def main():
         paths = media_paths(cmd)
         missing = [p for p in paths if not os.path.isfile(p)]
         if missing:
-            # 文件已经被清走了，调 biliup 也没用，直接丢掉这一单
             log('跳过（源文件已不在，缺 %d/%d）: %s'
                 % (len(missing), len(paths), name))
             try:
@@ -200,22 +233,17 @@ def main():
             except Exception as e:
                 log('删目录失败: %r' % (e,))
             ok += 1
-            if ok < min(count, MAX_PER_RUN):
-                save_state(int(time.time()) + SUCCESS_GAP, 0, count - ok)
-                log('还有待传，%d 秒后再来' % SUCCESS_GAP)
-                return 0
+            if pending_dirs():
+                log('%d 秒后传下一个' % IN_RUN_GAP)
+                time.sleep(IN_RUN_GAP)
             continue
 
-        log('失败（rc=%d，%ds）' % (rc, dt))
         fails += 1
         wait = BACKOFF[min(fails - 1, len(BACKOFF) - 1)]
-        save_state(int(time.time()) + wait, fails, count)
-        log('风控大概还没解除，%d 秒后再试（连续失败 %d 次）' % (wait, fails))
+        save_state(int(time.time()) + wait, fails, len(pending_dirs()))
+        log('失败（rc=%d，%ds），武装保留，%d 秒后再试（连续失败 %d 次）'
+            % (rc, dt, wait, fails))
         return 1
-
-    save_state(0, 0, max(0, count - ok))
-    log('本轮完成，成功 %d 个' % ok)
-    return 0
 
 
 if __name__ == '__main__':

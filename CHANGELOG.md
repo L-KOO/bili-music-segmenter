@@ -260,3 +260,28 @@ docker restart ipnby-inaseg-1 ipnby-inacelery-1
 - `scripts/upload_requeue.py` / `upload_recover.sh`：孤儿判定加「至少还有 1 个 mp4」
 
 实测：重启后残留的 3 个陈旧任务各在 **3 毫秒**内跳过，不再占用 worker。
+
+### 16. 补传通道改为「武装制」：不常驻、传完自动解除
+
+问题：`upload_resume.py` 原先每 2 分钟无条件工作，没有终止条件。被风控拦住时，
+它每 30 分钟（`BACKOFF` 封顶 1800 秒）就往 B 站打一次真实上传请求，永不停止；
+健康时还会抢在 celery 前面传（celery 每单后 sleep 2400 秒，而 resume 每 2 分钟扫一次）。
+
+改法：给补传通道加一个「武装标记」`.upload_resume.arm`，默认不工作。
+
+- `scripts/upload_resume.py`
+  - 未武装时**直接 return**，不扫描、不发请求（cron 拉起来只是毫秒级空转）
+  - 已武装时进入 drain 循环：把待传目录一个个传完，全部清空后**删除标记并退出**
+  - 失败时**保留标记**，按 `BACKOFF`（120/240/480/900/1800 秒）等下一轮继续
+  - 同一次运行内两场之间隔 `RESUME_INRUN_GAP`（默认 60 秒）
+  - 单轮上限 `RESUME_MAX_DRAIN`（默认 10 个），到上限保留标记等下一轮
+  - 新增 `--drain`（无视标记立即补传）和 `--dry-run`
+  - 移除失效的 `RESUME_SUCCESS_GAP`（drain 模式下由 `RESUME_INRUN_GAP` 取代）
+    和实际不生效的 `RESUME_MAX_PER_RUN`
+- `scripts/upload_watch.sh`
+  - 新增 `ARM_FILE` 变量；在「目录数变少」分支里 `touch` 武装标记并记一行日志
+  - 你手动上传后删掉目录 -> 下一次 watch（≤10 分钟）自动武装 -> 下一次 resume
+    （≤2 分钟）接手把剩下的传完 -> 自动解除武装
+
+实测：未武装时零输出；watch 检测到 2->1 自动武装；武装后无可传目录自动解除；
+`--drain` 可人工无视标记立即补传。

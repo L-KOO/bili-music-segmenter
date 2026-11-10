@@ -32,3 +32,5 @@ core
 *.swp
 segment/bak/
 *.bak
+.upload_resume.state
+.upload_resume.arm

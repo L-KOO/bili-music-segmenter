@@ -13,6 +13,7 @@ PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 UP=/vol2/1000/ipynb/inaupload
 STATE=/vol2/1000/ipynb/.upload_watch.state
 LOG=/vol2/1000/ipynb/scripts/upload_watch.log
+ARM_FILE=/vol2/1000/ipynb/.upload_resume.arm   # 补传通道的武装标记
 
 # PushPlus token 放在同目录的 .pushplus.env 里（已加入 .gitignore，不会进仓库）。
 # 文件内容就一行：PUSHPLUS_TOKEN=你的token
@@ -61,8 +62,14 @@ oldest_ts=$(stat -c %Y "$oldest" 2>/dev/null || echo "$now")
 shrink=${prev_shrink:-}
 if [ -z "$shrink" ] || [ "$shrink" = "-" ]; then
     shrink=$oldest_ts                       # 首次运行：以最老目录的创建时间为基准
-elif [ "$count" -lt "${prev_count:-0}" ] || [ "$oldest_sig" != "${prev_sig:-}" ]; then
+elif [ "$count" -lt "${prev_count:-0}" ]; then
     shrink=$now                             # 有目录被成功上传，重新计时
+    # 目录数变少 = 有进展：可能是 celery 传完了，也可能是你手动上传后删掉了目录。
+    # 两种情况都该让补传通道接手剩下的，所以在这里武装它。
+    : > "$ARM_FILE"
+    echo "[$(date '+%F %T')] 目录数 ${prev_count:-0} -> ${count}，武装补传通道"
+elif [ "$oldest_sig" != "${prev_sig:-}" ]; then
+    shrink=$now
 fi
 
 waited=$((now - shrink))
