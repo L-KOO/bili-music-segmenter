@@ -60,14 +60,23 @@ oldest_ts=$(stat -c %Y "$oldest" 2>/dev/null || echo "$now")
 
 # 有没有进展？
 shrink=${prev_shrink:-}
+# 这一轮「距离上次进展」已经等了多久（用更新前的 shrink 算）
+old_waited=0
+if [ -n "$shrink" ] && [ "$shrink" != "-" ]; then
+    old_waited=$((now - shrink))
+fi
+
 if [ -z "$shrink" ] || [ "$shrink" = "-" ]; then
     shrink=$oldest_ts                       # 首次运行：以最老目录的创建时间为基准
 elif [ "$count" -lt "${prev_count:-0}" ]; then
     shrink=$now                             # 有目录被成功上传，重新计时
-    # 目录数变少 = 有进展：可能是 celery 传完了，也可能是你手动上传后删掉了目录。
-    # 两种情况都该让补传通道接手剩下的，所以在这里武装它。
-    : > "$ARM_FILE"
-    echo "[$(date '+%F %T')] 目录数 ${prev_count:-0} -> ${count}，武装补传通道"
+    # 只有在「已经卡到过 STALL」之后目录数才变少，才武装补传通道。
+    # 因为正常批量上传时 celery 每传完一场都会让目录数变少，那种情况不能武装，
+    # 否则 resume 会把剩下的以 60 秒间隔连着传完，把 40 分钟的上传间隔废掉、招来风控。
+    if [ "$old_waited" -ge "$STALL" ]; then
+        : > "$ARM_FILE"
+        echo "[$(date '+%F %T')] 卡住 ${old_waited}s 后目录数 ${prev_count:-0} -> ${count}，武装补传通道"
+    fi
 elif [ "$oldest_sig" != "${prev_sig:-}" ]; then
     shrink=$now
 fi
