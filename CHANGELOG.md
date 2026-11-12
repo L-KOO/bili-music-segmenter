@@ -298,3 +298,15 @@ docker restart ipnby-inaseg-1 ipnby-inacelery-1
 
 「提前看到就处理」这种情况（没等到 5 小时告警）不会自动武装，用
 `touch /vol2/1000/ipynb/.upload_resume.arm` 手动武装即可。
+
+### 17. 投稿标题与转存目录名去掉内部标记 `_merged`
+
+问题：`_merged` 是合并脚本的内部后缀，却一路带进了投稿标题
+（`[歌切] 2026-11-11 19-08-52 今天在唱歌！_merged`）和失败转存目录名。
+
+改法（`network/biliupload.py`）：
+- 新增 `strip_merged_suffix()`：仅去掉结尾的 `_merged`（文件名或标题尾部）
+- `--title` 生成后过一遍该函数
+- useCelery / 非 celery 两条路径的失败转存目录名同样处理
+
+存量修正：当前 `inaupload/` 里 2 个 `cmd.txt` 的标题已就地清掉 `_merged`。

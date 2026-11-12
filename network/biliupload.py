@@ -14,6 +14,11 @@ BILIUP_ROUTE = 'qn'  # 'kodo'
 RETRY_ROUTES = DEFAULT_SETTINGS['biliup_routes']
 
 
+def strip_merged_suffix(name):
+    """去掉媒体名/标题/目录名里的流水线内部标记 _merged。"""
+    return re.sub(r'_merged(?=\.[^.]+$|$)', '', name)
+
+
 def bilibili_upload(
         globbed,
         media_basename,
@@ -51,6 +56,7 @@ def bilibili_upload(
     title = f'[{ tags[0]}] {os.path.splitext(media_basename)[0][-8:]}的直播歌曲'
     title = media_basename[:media_basename.rfind('.')][:60].replace(
         ripped_from, tags[0]).replace('【直播回放】', '')
+    title = strip_merged_suffix(title)
     globbed = sorted(globbed)
     globbed_episode_limit = []
     for i in range(len(globbed) // episode_limit + 1):
@@ -86,7 +92,7 @@ def bilibili_upload(
             relocated_dir_on_fail = os.path.join(
                 os.path.dirname(globbed_episode_limit[i][0]),
                 'inaupload',
-                f'{title.replace(" ", "_")}'
+                f'{strip_merged_suffix(title).replace(" ", "_")}'
             )
             os.makedirs(relocated_dir_on_fail, exist_ok=True)
             for item in globbed_episode_limit[i]:
@@ -114,7 +120,7 @@ def bilibili_upload(
             logging.warning(['upload failed, retry attempt', retry])
             route = RETRY_ROUTES[retry % len(RETRY_ROUTES)]
             if retry > 15:
-                relocated_dir_on_fail = f'{title.replace(" ", "_")}'
+                relocated_dir_on_fail = f'{strip_merged_suffix(title).replace(" ", "_")}'
                 os.makedirs(relocated_dir_on_fail, exist_ok=True)
                 for item in globbed_episode_limit[i]:
                     os.rename(item, os.path.join(

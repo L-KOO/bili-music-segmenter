@@ -1,11 +1,11 @@
 - extractor: glob
   filter: null
-  last_url: "/recording/2026-11-09 13-13-25 \u4E0B\u5348\u597D_merged.mp4"
+  last_url: "/recording/2026-11-11 21-55-29 \u5531\u4F1A\u6B4C_merged.mp4"
   name: me!me!me!
   url: /recording/*
 - extractor: biliseries.new
   filter: hachi
-  last_url: https://www.bilibili.com/video/BV135WM6uE23
+  last_url: https://www.bilibili.com/video/BV1ELWj66Ezv
   url: https://space.bilibili.com/1351761831/lists/495256?type=series
 - extractor: biliuserupload
   filter: null
@@ -17,7 +17,7 @@
   url: https://space.bilibili.com/289437658/upload/video
 - extractor: biliuserupload
   filter: no-song-cut
-  last_url: https://www.bilibili.com/video/BV1xUW86sE8H
+  last_url: https://www.bilibili.com/video/BV1wAW26cEKk
   url: https://space.bilibili.com/1535934003/upload/video
 - extractor: acfunuser
   filter: karaoke
