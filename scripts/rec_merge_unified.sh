@@ -78,10 +78,10 @@ EARLY_HOUR_CUTOFF=6
 MAX_GAP_MINUTES=0
 
 # 输出文件名后缀
-OUTPUT_SUFFIX="_merged"
+OUTPUT_SUFFIX=""
 
 # 识别不到的扩展名一律忽略；这些才会处理
-VIDEO_EXTS="mp4 mkv flv ts"
+VIDEO_EXTS="mp4 mkv flv ts m4s"
 
 # 只保留这份名单里的文件（防止把 .part/.tmp 当成分片）
 IGNORE_PATTERNS="*.part *.tmp *.!qB *.merge* *_merged.*"
@@ -230,6 +230,7 @@ ext_of(){
         *.mkv) echo mkv ;;
         *.flv) echo flv ;;
         *.ts)  echo ts ;;
+        *.m4s) echo m4s ;;
         *)     echo "" ;;
     esac
 }
@@ -580,11 +581,25 @@ merge_group(){
 }
 
 # 跨卷安全移动：copy 到目标盘临时名 → 校验大小 → rename
+# 对 .m4s：先 ffprobe 验证是有效视频，有效则重命名为 .mp4 后移动
 safe_move(){
     local src="$1" dst="$2"
     if [ -e "$dst" ] && [ -s "$dst" ]; then
         rm -f -- "$src"; remove_state "$src"; return 0
     fi
+
+    # 视频完整性校验：非视频文件不移动
+    local fmt
+    fmt=$(ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 "$src" 2>/dev/null | tr -d '\r\n')
+    case "$fmt" in
+        mov,mp4,m4a,3gp,3g2,mj2)
+            ;;  # 正常视频/音频，继续
+        *)
+            log "  [跳过] 非视频文件或损坏：$(basename "$src") (fmt=$fmt)"
+            return 1
+            ;;
+    esac
+
     local tmp="$TMP_DIR/.moving.$$.$(basename "$dst")"
     rm -f -- "$tmp"
     if ! cp -- "$src" "$tmp"; then
@@ -597,8 +612,15 @@ safe_move(){
         log "  [失败] 大小校验不一致：$a vs $b"
         rm -f -- "$tmp"; return 1
     fi
-    if ! mv -- "$tmp" "$dst"; then
-        log "  [失败] 改名失败：$(basename "$dst")"
+
+    # .m4s 改为 .mp4
+    local final_dst="$dst"
+    if [[ "$dst" == *.m4s ]]; then
+        final_dst="${dst%.m4s}.mp4"
+    fi
+
+    if ! mv -- "$tmp" "$final_dst"; then
+        log "  [失败] 改名失败：$(basename "$final_dst")"
         rm -f -- "$tmp"; return 1
     fi
     rm -f -- "$src"; remove_state "$src"
