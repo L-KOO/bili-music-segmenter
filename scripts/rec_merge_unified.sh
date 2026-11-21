@@ -407,6 +407,54 @@ check_space(){
 }
 
 # 核心：一组碎片 → 一个 mp4
+# 去跳变归一化：规范化 PTS/DTS、强制 CFR、音频重采样到连续时间轴。
+# B 站二次转码遇到时间戳跳变会拒收或报「该视频内部存在时间戳跳变」。
+# 单文件和合并输出都必须走这里；失败时保留原输入不覆盖。
+# 用法: normalize_video <输入> <工作目录>  → 成功时把结果路径写到 NORMALIZED_OUT
+normalize_video(){
+    local src="$1" work="$2"
+    NORMALIZED_OUT=""
+
+    local normalized="$work/normalized.mp4"
+    # 注意：不使用 -hwaccel qsv 解码 —— 本机 VA-API 解码会报 Decode error
+    # （Decode error rate 1 exceeds maximum），连正常文件也失败。
+    # 改为：软解码 + h264_qsv 硬编码（实测 1 分钟切片 2 秒完成）。
+    if timeout "$ENCODE_TIMEOUT" "$FFMPEG" -nostdin -hide_banner -loglevel warning -y \
+        -i "$src" \
+        -c:v h264_qsv -qp 23 -vsync cfr -fflags +genpts \
+        -af aresample=async=1:first_pts=0 \
+        -c:a aac -b:a "$FIX_AUDIO_BITRATE" \
+        -movflags +faststart "$normalized" 2>"$work/normalize.err"; then
+        if [ -s "$normalized" ]; then
+            NORMALIZED_OUT="$normalized"
+            log "  [归一化] QSV 硬编码完成（几乎不占 CPU 核心）"
+            return 0
+        fi
+        log "  [警告] QSV 输出为空，回退软编码"
+    else
+        log "  [警告] QSV 硬编码失败，回退到软编码（-threads 1，留出 CPU 核心）"
+    fi
+    cat "$work/normalize.err" >> "$LOG_FILE" 2>/dev/null || true
+
+    local normalized_soft="$work/normalized_soft.mp4"
+    if timeout "$ENCODE_TIMEOUT" "$FFMPEG" -nostdin -hide_banner -loglevel warning -y \
+        -i "$src" \
+        -fflags +genpts -vsync cfr -threads 1 \
+        -c:v libx264 -preset "$FIX_PRESET" -crf "$FIX_CRF" \
+        -af aresample=async=1:first_pts=0 \
+        -c:a aac -b:a "$FIX_AUDIO_BITRATE" \
+        -movflags +faststart "$normalized_soft" 2>"$work/normalize_soft.err"; then
+        if [ -s "$normalized_soft" ]; then
+            NORMALIZED_OUT="$normalized_soft"
+            log "  [归一化] 软编码完成（-threads 1）"
+            return 0
+        fi
+    fi
+    cat "$work/normalize_soft.err" >> "$LOG_FILE" 2>/dev/null || true
+    log "  [警告] 软编码也失败，保留原始输入（未归一化）"
+    return 1
+}
+
 merge_group(){
     local src_dir="$1" dst_dir="$2" key="$3"; shift 3
     local files=("$@")
@@ -452,14 +500,29 @@ merge_group(){
         return 1
     fi
 
-    # 单文件：直接改名移动（不重编码）
+    # 单文件：先做去跳变归一化再移动（原录流可能带时间戳跳变，B 站会拒收）
     if (( n == 1 )); then
         if (( DRY_RUN == 1 )); then
-            log "  [DRY] 单文件移动：$(basename "$first") → $out_name"
+            log "  [DRY] 单文件归一化并移动：$(basename "$first") → $out_name"
             return 0
         fi
-        safe_move "$first" "$dst_file" && log "  [完成] 单文件：$out_name"
-        return $?
+        local swork="$work/single"
+        mkdir -p "$swork"
+        local single_out="$first"
+        if normalize_video "$first" "$swork"; then
+            single_out="$NORMALIZED_OUT"
+        fi
+        if ! safe_move "$single_out" "$dst_file"; then
+            rm -rf -- "$swork"
+            return 1
+        fi
+        if [ "$single_out" != "$first" ]; then
+            rm -f -- "$first"
+            remove_state "$first"
+        fi
+        rm -rf -- "$swork"
+        log "  [完成] 单文件：$out_name"
+        return 0
     fi
 
     log "  [合并] $key  共 ${n} 段 → $out_name"
@@ -528,41 +591,9 @@ merge_group(){
         fi
     fi
 
-    # 多段合并输出做一次去跳变重编码：规范化 PTS/DTS、强制 CFR，规避 B 站二次转码时间跳变
-    # 单段文件（n==1）不走此分支，零编码开销；多段合并才重编码，源文件可能已删，必须默认全量执行
-    local normalized="$work/normalized.mp4"
-    if timeout "$ENCODE_TIMEOUT" "$FFMPEG" -nostdin -hide_banner -loglevel warning -y \\
-        -hwaccel qsv -hwaccel_device /dev/dri/renderD128 \\
-        -i "$tmp_out" \\
-        -c:v h264_qsv -qp 23 -vsync cfr -fflags +genpts \\
-        -af aresample=async=1:first_pts=0 \\
-        -c:a aac -b:a "$FIX_AUDIO_BITRATE" \\
-        -movflags +faststart "$normalized" 2>"$work/normalize.err"; then
-        if [ -s "$normalized" ]; then
-            tmp_out="$normalized"
-            log "  [归一化] QSV 硬编码完成（几乎不占 CPU 核心）"
-        else
-            log "  [警告] QSV 输出为空，保留原始合并输出"
-        fi
-    else
-        log "  [警告] QSV 硬编码失败，回退到软编码（-threads 1，留出 CPU 核心）"
-        cat "$work/normalize.err" >> "$LOG_FILE" 2>/dev/null || true
-        local normalized_soft="$work/normalized_soft.mp4"
-        if timeout "$ENCODE_TIMEOUT" "$FFMPEG" -nostdin -hide_banner -loglevel warning -y \\
-            -i "$tmp_out" \\
-            -fflags +genpts -vsync cfr -threads 1 \\
-            -c:v libx264 -preset "$FIX_PRESET" -crf "$FIX_CRF" \\
-            -af aresample=async=1:first_pts=0 \\
-            -c:a aac -b:a "$FIX_AUDIO_BITRATE" \\
-            -movflags +faststart "$normalized_soft" 2>"$work/normalize_soft.err"; then
-            if [ -s "$normalized_soft" ]; then
-                tmp_out="$normalized_soft"
-                log "  [归一化] 软编码完成（-threads 1）"
-            fi
-        else
-            log "  [警告] 软编码也失败，保留原始合并输出"
-            cat "$work/normalize_soft.err" >> "$LOG_FILE" 2>/dev/null || true
-        fi
+    # 多段合并输出同样走去跳变归一化（源文件可能已删，必须全量执行）
+    if normalize_video "$tmp_out" "$work"; then
+        tmp_out="$NORMALIZED_OUT"
     fi
 
     # 落盘
