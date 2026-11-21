@@ -64,6 +64,18 @@ TMP_DIR="$WORK_DIR/tmp"
 LOG_FILE="$WORK_DIR/rec_merge_unified.log"
 LOCK_FILE="/tmp/rec_merge_unified.lock"
 
+# 启动前自检：语法、续行完整性、关键函数。失败则拒绝运行，
+# 避免带着断裂的 ffmpeg 命令去处理录播（历史上会产出半成品并导致上传编码错误）。
+SELF_CHECK="${SELF_CHECK:-/vol1/1000/biliup/data/rec/check_rec_merge.sh}"
+if [ -x "$SELF_CHECK" ]; then
+    if ! "$SELF_CHECK" "$0" >/tmp/rec_merge_selfcheck.log 2>&1; then
+        echo "[$(date '+%F %T')] [自检失败] 详见 /tmp/rec_merge_selfcheck.log" >&2
+        tail -20 /tmp/rec_merge_selfcheck.log >&2
+        exit 2
+    fi
+    rm -f /tmp/rec_merge_selfcheck.log
+fi
+
 # 文件连续多少秒不变才认为录制结束
 STABLE_SECONDS=90
 # 组内最后一个碎片额外等待（防止边写边合）
