@@ -431,9 +431,19 @@ normalize_video(){
     # 注意：不使用 -hwaccel qsv 解码 —— 本机 VA-API 解码会报 Decode error
     # （Decode error rate 1 exceeds maximum），连正常文件也失败。
     # 改为：软解码 + h264_qsv 硬编码（实测 1 分钟切片 2 秒完成）。
+    #
+    # B 站投稿规范要点（对比实测得出）：
+    #   -fps_mode cfr -r 30   强制恒定帧率；录制流常是 VFR
+    #                          （avg_frame_rate ≈ 29.96 != r_frame_rate 30），
+    #                          会让 B 站报「数据异常，请重新压制」
+    #   -fflags +genpts        重新生成 PTS，消除时间戳断层
+    #   不加 -avoid_negative_ts make_zero / +negative_cts_offsets：
+    #                          实测会把 video start_time 推到 0.066、
+    #                          audio 推到 0.045 且保留 media_time=-1 的空编辑；
+    #                          不加这两个参数时 two streams start_time 均为 0.000
     if timeout "$ENCODE_TIMEOUT" "$FFMPEG" -nostdin -hide_banner -loglevel warning -y \
         -i "$src" \
-        -c:v h264_qsv -qp 23 -vsync cfr -fflags +genpts \
+        -c:v h264_qsv -qp 23 -fps_mode cfr -r 30 -fflags +genpts \
         -af aresample=async=1:first_pts=0 \
         -c:a aac -b:a "$FIX_AUDIO_BITRATE" \
         -movflags +faststart "$normalized" 2>"$work/normalize.err"; then
@@ -451,7 +461,7 @@ normalize_video(){
     local normalized_soft="$work/normalized_soft.mp4"
     if timeout "$ENCODE_TIMEOUT" "$FFMPEG" -nostdin -hide_banner -loglevel warning -y \
         -i "$src" \
-        -fflags +genpts -vsync cfr -threads 1 \
+        -fflags +genpts -fps_mode cfr -r 30 -threads 1 \
         -c:v libx264 -preset "$FIX_PRESET" -crf "$FIX_CRF" \
         -af aresample=async=1:first_pts=0 \
         -c:a aac -b:a "$FIX_AUDIO_BITRATE" \
