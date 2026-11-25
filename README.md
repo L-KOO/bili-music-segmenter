@@ -342,7 +342,8 @@ bili-music-segmenter/
 │
 └── docs/
     ├── MANUAL_INSTALL.md     # 手动安装说明（含 systemd）
-    └── REC_MERGE.md          # 录播合并脚本说明
+    ├── REC_MERGE.md          # 录播合并脚本说明
+    └── UPSTREAM_README.md    # 上游原始文档（历史参考，部分已过时）
 ```
 
 ---
@@ -425,6 +426,15 @@ docker compose build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn
 ## 许可
 
 见 [LICENSE](LICENSE)。
+
+## 更多文档
+
+| 文档 | 内容 |
+|---|---|
+| [docs/MANUAL_INSTALL.md](docs/MANUAL_INSTALL.md) | 不用 Docker 的完整安装流程 + systemd 配置 |
+| [docs/REC_MERGE.md](docs/REC_MERGE.md) | 录播合并脚本（处理碎片文件）的独立说明 |
+| [docs/UPSTREAM_README.md](docs/UPSTREAM_README.md) | 上游原始文档，含预构建镜像地址、GPU 用法、性能基准（部分内容已过时） |
+| [CHANGELOG.md](CHANGELOG.md) | 本分支的性能优化记录 |
 
 ## 致谢
 
