@@ -1,33 +1,60 @@
+# ============================================================================
+# 切歌源配置 —— 决定「从哪里找录播来切」
+#
+# 每条记录是一个数据源，字段含义：
+#   extractor : 取源方式。本项目最常用 glob（本地目录扫描）
+#   url       : 取源地址。glob 类型填目录通配符，必须是容器内路径
+#   filter    : 标题过滤规则（见下方 FILTERS 表），null = 不过滤
+#   last_url  : 上次处理到的位置（程序自动维护，首次可留 null）
+#   name      : 备注名，仅用于日志识别
+#
+# 【重要】本项目默认只处理本地已有文件，所以下面只保留一条 glob 规则。
+#        如果你同时用本仓库的 rec_merge_unified.sh 做录播合并，就把
+#        RECORDING_DIR 指向它的输出目录（/recording 已固定挂载）。
+# ============================================================================
+
 - extractor: glob
   filter: null
-  last_url: "/recording/2026-11-11 21-55-29 \u5531\u4F1A\u6B4C_merged.mp4"
-  name: me!me!me!
+  last_url: null
+  name: 本地录播目录
   url: /recording/*
-- extractor: biliseries.new
-  filter: hachi
-  last_url: https://www.bilibili.com/video/BV1ELWj66Ezv
-  url: https://space.bilibili.com/1351761831/lists/495256?type=series
-- extractor: biliuserupload
-  filter: null
-  last_url: https://www.bilibili.com/video/BV1eGPozLERA
-  url: https://space.bilibili.com/3493294331923008/upload/video
-- extractor: biliuserupload
-  filter: karaoke
-  last_url: https://www.bilibili.com/video/BV1guW46sEbB
-  url: https://space.bilibili.com/289437658/upload/video
-- extractor: biliuserupload
-  filter: no-song-cut
-  last_url: https://www.bilibili.com/video/BV1wAW26cEKk
-  url: https://space.bilibili.com/1535934003/upload/video
-- extractor: acfunuser
-  filter: karaoke
-  last_url: https://www.acfun.cn/v/ac47653921
-  url: https://www.acfun.cn/u/179922
-- extractor: biliseries.new
-  filter: null
-  last_url: https://www.bilibili.com/video/BV1BXuW64EyZ
-  url: https://space.bilibili.com/2000609327/lists/2662205?type=series
-- extractor: biliseries.new
-  filter: hachi
-  last_url: https://www.bilibili.com/video/BV19r4p6oERU
-  url: https://space.bilibili.com/354389308/lists/4195251?type=series
+
+# ----------------------------------------------------------------------------
+# 可选：从 B 站 / Acfun 自动追某个 UP 主的最新投稿（不需要就别取消注释）
+#
+# extractor 类型：
+#   biliuserupload  —— 追某个 UP 主的所有投稿
+#   biliseries.new  —— 追某个合集/系列
+#   bilicolle.new   —— 追某个收藏夹
+#   acfunuser       —— 追 Acfun 用户
+#
+# filter 可选值：
+#   null             —— 不过滤，全部下载
+#   karaoke          —— 只保留标题含 歌/唱/黑听/歌回/歌台 的
+#   nopart           —— 排除标题含 part 的（避免分 P 重复）
+#   nogame           —— 排除标题含 游戏 的
+#   song_from_stream —— 只保留标题含 歌切 的
+#   hachi            —— 只保留标题含 月/歌/唱/黑听/歌回/歌台 的
+#   no-song-cut      —— 排除标题含 [歌切] 的（避免把自己的投稿再传一遍）
+#
+# 示例：追某个 UP 主的投稿，只下载唱歌类
+# - extractor: biliuserupload
+#   filter: karaoke
+#   last_url: null
+#   name: 某UP主
+#   url: https://space.bilibili.com/填入UP主UID/upload/video
+#
+# 示例：追某个合集
+# - extractor: biliseries.new
+#   filter: null
+#   last_url: null
+#   name: 某合集
+#   url: https://space.bilibili.com/填入UID/lists/填入合集ID?type=series
+#
+# 示例：追 Acfun 用户
+# - extractor: acfunuser
+#   filter: karaoke
+#   last_url: null
+#   name: 某A站UP
+#   url: https://www.acfun.cn/u/填入用户ID
+# ----------------------------------------------------------------------------

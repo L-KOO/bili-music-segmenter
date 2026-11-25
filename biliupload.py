@@ -10,6 +10,14 @@ from utils.process import cell_stdout
 DEFAULT_SETTINGS = {
     "biliup_routes": ['qn'],
 }
+
+# 投稿分区 ID。31=音乐/翻唱，21=日常，138=搞笑。
+# 可用环境变量 UPLOAD_TID 覆盖，见 .env.example
+UPLOAD_TID = os.environ.get('UPLOAD_TID', '31')
+
+# 转载类型：1=自制，2=转载
+UPLOAD_COPYRIGHT = os.environ.get('UPLOAD_COPYRIGHT', '2')
+
 BILIUP_ROUTE = 'qn'  # 'kodo'
 RETRY_ROUTES = DEFAULT_SETTINGS['biliup_routes']
 
@@ -64,9 +72,9 @@ def bilibili_upload(
         for x in v:
             cmd.append(x)
         cmd.extend([
-            '--copyright=2',
+            f'--copyright={UPLOAD_COPYRIGHT}',
             f'--desc={description}',
-            '--tid=31',
+            f'--tid={UPLOAD_TID}',
             f'--tag={",".join(tags)}',
             f'--title=[歌切] {title[:60]}{episode_limit_prefix}',
             f'--source={source}',

@@ -34,3 +34,7 @@ segment/bak/
 *.bak
 .upload_resume.state
 .upload_resume.arm
+
+# ---- 环境变量（含私密路径，绝不提交）----
+.env
+.env.local

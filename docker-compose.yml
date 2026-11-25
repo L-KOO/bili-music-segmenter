@@ -1,19 +1,104 @@
-version: "3.9"
+
+# ============================================================================
+# bili-music-segmenter —— 直播录播自动切歌 + 上传 B 站
+#
+# 使用前必读：
+#   1) 复制 .env.example 为 .env，并按其中的注释填好必填项
+#   2) 首次运行前需准备 cookies.json（biliup 登录态），见 README 第 4 节
+#   3) 两个服务都必须在同一个宿主目录下运行，因为它们共享 cookies.json
+#
+# 启动：docker compose up -d
+# 查看日志：docker compose logs -f inaseg
+# 停止：docker compose down
+# ============================================================================
+
 services:
+  # --------------------------------------------------------------------------
+  # inaseg：切歌主服务
+  #   职责：轮询 /recording 目录 → 检测音频中的音乐片段 → ffmpeg 切片
+  #         → shazam 识歌 → 投递上传任务给 inacelery
+  # --------------------------------------------------------------------------
   inaseg:
-    image: ipynb-inaseg
-    build: .
+    image: ${IMAGE_NAME:-ipynb-inaseg}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
     volumes:
-      - .:/inaseg
-      - /vol1/1000/biliup/data/rec/merged:/recording
-    command: python /inaseg/watcher.py --watch_interval=43200
-    restart: unless-stopped
+      # 代码与配置目录（必须，容器内所有脚本都从这里加载）
+      #   格式：<宿主机项目目录>:<容器内路径>
+      - ./:/inaseg
+      # 录播成品目录 —— 切歌服务的输入源（必填，见 .env 的 RECORDING_DIR）
+      #   容器内固定挂到 /recording，configs/biliWatcher.yaml 里的 glob 规则
+      #   就是按 /recording/* 来匹配文件的
+      - ${RECORDING_DIR:?请在 .env 中设置 RECORDING_DIR}:/recording
+      # 工作目录 —— 中间产物与临时文件（可选，默认 ./work）
+      - ${WORK_DIR:-./work}:/work
+    command: >
+      python /inaseg/watcher.py
+      --watch_interval=${WATCH_INTERVAL:-120}
+      --stable_wait=${STABLE_WAIT:-10}
+      --stable_checks=${STABLE_CHECKS:-2}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    # 切歌是 CPU 密集任务，限制资源可避免拖垮整机（可选，注释掉则不限）
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "${INASEG_CPU_LIMIT:-4}"
+    #       memory: "${INASEG_MEM_LIMIT:-8g}"
+
+  # --------------------------------------------------------------------------
+  # inacelery：上传队列 worker
+  #   职责：从 SQLite broker 取任务 → 调用 biliup 上传 → 上传成功后等 N 秒
+  #   注意：--concurrency 必须为 1，否则多个上传会同时抢 B 站接口触发风控
+  # --------------------------------------------------------------------------
   inacelery:
-    image: ipynb-inaseg
-    build: .
+    image: ${IMAGE_NAME:-ipynb-inaseg}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
     volumes:
-      - .:/inaseg
-      - /vol1/1000/biliup/data/rec/merged:/recording
-      
-    command: celery -A inacelery worker -c 1 --loglevel=info
-    restart: unless-stopped
+      # 与 inaseg 共享同一份代码目录，这样 celery 队列（celerydb.sqlite）
+      # 和 cookies.json 才能被两个容器同时访问
+      - ./:/inaseg
+      # 上传阶段需要读取切片产物，所以也要挂载录制目录
+      - ${RECORDING_DIR:?请在 .env 中设置 RECORDING_DIR}:/recording
+    command: >
+      celery -A inacelery worker
+      -c ${CELERY_CONCURRENCY:-1}
+      --loglevel=${CELERY_LOGLEVEL:-info}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    # 上传是网络密集任务，CPU 占用低但要保证不被切歌抢完
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "${CELERY_CPU_LIMIT:-2}"
+    #       memory: "${CELERY_MEM_LIMIT:-2g}"
+
+  # --------------------------------------------------------------------------
+  # 可选：卡死告警与失败重投（默认不启用）
+  #   如需启用，取消下面的注释，并在 .env 中设置 PUSHPLUS_TOKEN
+  #   这两个脚本通过 cron 定时执行，不需要常驻进程，所以用 profiles 隔离
+  # --------------------------------------------------------------------------
+  # maintenance:
+  #   image: ${IMAGE_NAME:-ipynb-inaseg}
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   env_file:
+  #     - .env
+  #   volumes:
+  #     - ./:/inaseg
+  #     - ${RECORDING_DIR}:./recording
+  #   entrypoint: ["/bin/sh", "-c"]
+  #   command: >
+  #     while true; do
+  #       /inaseg/scripts/upload_watch.sh   >> /inaseg/scripts/upload_watch.log 2>&1;
+  #       /inaseg/scripts/upload_recover.sh >> /inaseg/scripts/upload_recover.log 2>&1;
+  #       sleep 600;
+  #     done
+  #   restart: unless-stopped
+  #   profiles: ["maintenance"]
